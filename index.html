@@ -249,16 +249,16 @@
     </div>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        // Import all necessary Firebase modules
+        import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, collection, query, where, getDocs, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        // Wrap the entire logic in an IIFE for scope isolation and robust loading
         (function() {
 
             // =================================================================
-            // *** CRITICAL STEP 1: FIREBASE CONFIGURATION (MAXIMUM RESILIENCE) ***
+            // *** CRITICAL STEP 1: FIREBASE CONFIGURATION (STATIC & ISOLATED) ***
             const firebaseConfig = {
                 apiKey: "AIzaSyB13PN_RKzeGhItTvkPp3ovY-v5fL9rnXg",
                 authDomain: "bt4444.firebaseapp.com",
@@ -269,7 +269,7 @@
             };
             // =================================================================
 
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'; // Use canvas environment ID if available
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
             let app, db, auth, storage;
             let userId = null;
@@ -298,19 +298,26 @@
             // --- FIREBASE INITIALIZATION ---
 
             try {
-                // Ensure auth/configuration-not-found is resolved by direct initialization
-                
                 setLogLevel('debug'); // Enable detailed Firebase logging
+
+                // CRITICAL FIX: Prevent double initialization which causes 'configuration-not-found'
+                if (getApps().length === 0) {
+                    app = initializeApp(firebaseConfig);
+                    log('Firebase app initialized successfully.', 'success');
+                } else {
+                    app = getApp();
+                    log('Firebase app already initialized. Reusing existing instance.', 'info');
+                }
                 
-                app = initializeApp(firebaseConfig);
+                // 2. Get Service Instances
                 db = getFirestore(app);
                 auth = getAuth(app);
                 storage = getStorage(app);
 
-                log('Firebase services initialized.', 'success');
                 firebaseStatus.className = 'status neutral';
                 firebaseStatus.innerHTML = '<i class="fas fa-fingerprint"></i> Authenticating...';
 
+                // 3. Handle Authentication
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
@@ -341,7 +348,7 @@
             } catch (e) {
                 firebaseStatus.className = 'status error';
                 firebaseStatus.innerHTML = '<i class="fas fa-times-circle"></i> System Init Error';
-                log(`FATAL: Firebase initialization failed. Check console: ${e.message}`, 'error');
+                log(`FATAL: Firebase initialization failed: ${e.message}`, 'error');
             }
 
             // --- APPLICATION LOGIC ---
@@ -619,4 +626,3 @@
     </script>
 </body>
 </html>
-```eof
