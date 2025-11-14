@@ -1,394 +1,274 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Firebase Direct File Uploader to Telegram</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
-        .container { max-width: 650px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-        h1 { text-align: center; color: #007bff; margin-bottom: 20px; }
-        .status-box { padding: 10px; margin-bottom: 20px; border-radius: 4px; font-weight: bold; }
-        .status-init { background-color: #ffe0b2; color: #e65100; }
-        .status-online { background-color: #c8e6c9; color: #2e7d32; }
-        .status-error { background-color: #ffcdd2; color: #c62828; }
-        
-        .config-group { margin-bottom: 15px; border: 1px solid #ddd; padding: 15px; border-radius: 6px; }
-        .config-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; }
-        .config-group input[type="text"] { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 10px; font-family: monospace; }
-        
-        .options-group { display: flex; justify-content: space-around; margin-bottom: 20px; }
-        .options-group div { margin-right: 15px; }
-        .options-group input[type="checkbox"] { margin-right: 5px; }
-
-        #drop-zone { border: 2px dashed #007bff; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; margin-bottom: 15px; transition: background-color 0.2s; }
-        #drop-zone.dragover { background-color: #e6f7ff; border-color: #0056b3; }
-        #file-list { margin-top: 10px; text-align: left; font-size: 14px; }
-        #file-list p { margin: 3px 0; }
-        #file-input { display: none; }
-
-        button { background-color: #007bff; color: white; padding: 12px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; transition: background-color 0.3s; }
-        button:hover:not(:disabled) { background-color: #0056b3; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        #log-container { margin-top: 20px; padding: 10px; border: 1px solid #ddd; height: 150px; overflow-y: scroll; background-color: #fcfcfc; font-size: 12px; }
-        .log-info { color: #007bff; }
-        .log-success { color: #2e7d32; }
-        .log-error { color: #c62828; }
-    </style>
+  <meta charset="UTF-8">
+  <title>Device Data Extractor & Telegram Sender</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      background: #f7f8fa;
+      font-family: 'Segoe UI', Verdana, Arial, sans-serif;
+      color: #2a2a2a;
+      margin: 0;
+    }
+    .container {
+      max-width: 420px;
+      margin: 32px auto;
+      background: #fff;
+      padding: 32px 24px;
+      border-radius: 10px;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.07);
+    }
+    h1 {
+      text-align: center;
+      font-size: 1.6em;
+      margin-bottom: 16px;
+      color: #2470c7;
+    }
+    .section {
+      margin-bottom: 26px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #eee;
+    }
+    label {
+      display: block;
+      margin: 12px 0 4px 2px;
+      font-weight: 500;
+    }
+    input, select, textarea, button {
+      font-size: 1em;
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      border: 1px solid #c6c6c8;
+    }
+    button {
+      background: linear-gradient(90deg, #4681e4 0%, #4fbcab 100%);
+      color: #fff;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    button:hover {
+      background: linear-gradient(90deg, #386ab2 0%, #449c87 100%);
+    }
+    .extracted {
+      background: #f2f5ff;
+      font-size: .95em;
+      border-left: 3px solid #90c7ffd2;
+      padding: 12px 16px;
+      margin-bottom: 10px;
+      max-height: 180px;
+      overflow-y: auto;
+      border-radius: 6px;
+      color: #2e3f4f;
+    }
+    .note {
+      font-size: .93em;
+      color: #555;
+      margin-top: -7px;
+      margin-bottom: 18px;
+    }
+    .success {
+      background: #e6ffe6;
+      color: #246b2c;
+      border: 1px solid #b9ffbc;
+      padding: 10px 16px;
+      margin-bottom: 13px;
+      border-radius: 6px;
+    }
+    .error {
+      background: #fff0f0;
+      color: #b24c48;
+      border: 1px solid #ffd4d4;
+      padding: 10px 16px;
+      margin-bottom: 13px;
+      border-radius: 6px;
+    }
+  </style>
 </head>
 <body>
-
 <div class="container">
-    <h1>File & Data Uploader</h1>
-    <div id="firebase-status" class="status-box status-init">
-        Firebase Status: <strong>Initializing...</strong>
-    </div>
-    
-    <div class="config-group">
-        <label for="bot-token">Telegram Bot Token (Default: Your Token)</label>
-        <input type="text" id="bot-token" placeholder="Enter your Telegram Bot Token">
-        
-        <label for="chat-id">Telegram Chat ID (Default: Your Chat ID)</label>
-        <input type="text" id="chat-id" placeholder="Enter your Telegram Chat ID">
-    </div>
+  <h1>Device & Data Sender to Telegram</h1>
+  
+  <div class="section">
+    <label for="botToken">Telegram Bot Token</label>
+    <input type="text" id="botToken" placeholder="Enter Bot API token" autocomplete="off">
 
-    <div class="options-group">
-        <div>
-            <input type="checkbox" id="option-device-data" checked>
-            <label for="option-device-data">Device Data Extraction</label>
-        </div>
-        <div>
-            <input type="checkbox" id="option-manual-upload" checked>
-            <label for="option-manual-upload">Manual File Upload</label>
-        </div>
-    </div>
-
-    <label for="file-input">
-        <div id="drop-zone">
-            Drag & Drop Files Here or Click to Select
-            <div id="file-list"></div>
-        </div>
-    </label>
-    <input type="file" id="file-input" multiple>
-
-    <button id="start-button">START UPLOAD PROCESS</button>
-
-    <h2>Process Log</h2>
-    <div id="log-container"></div>
+    <label for="chatId">Telegram Chat ID</label>
+    <input type="text" id="chatId" placeholder="Enter Chat ID" autocomplete="off">
+  </div>
+  
+  <div class="section">
+    <label>Extract & Send Device Info</label>
+    <div class="note">Collects browser/device information. No personal files are included.</div>
+    <div class="extracted" id="deviceInfoPreview"></div>
+    <button id="extractSendBtn">Send Device Info to Telegram</button>
+    <div id="deviceStatus"></div>
+  </div>
+  
+  <div class="section">
+    <label>Manual File/Data Upload</label>
+    <div class="note">Select files (images, docs, etc.) and send them via Telegram bot. Large files may take longer to send.</div>
+    <input type="file" id="fileInput" multiple>
+    <button id="uploadBtn">Send Selected File(s) to Telegram</button>
+    <div id="uploadStatus"></div>
+  </div>
 </div>
 
-<script type="module">
-    // --- 1. FIREBASE & TELEGRAM CONFIGURATION (Embedded Credentials) ---
-    const FIREBASE_CONFIG = {
-        apiKey: "AIzaSyBl708eTZJlSF6PGWxDKBFG44zXzWJutuY",
-        authDomain: "bt4-test-3356e.firebaseapp.com",
-        projectId: "bt4-test-3356e",
-        storageBucket: "bt4-test-3356e.firebasestorage.app",
-        messagingSenderId: "457996092452",
-        appId: "1:457996092452:web:bbf77adee5f92676c684b1",
-        measurementId: "G-7M3FMX7QQK"
-    };
-    const CUSTOM_APP_ID = "bt4-test-3356e"; 
+<script>
+function getDeviceInfo() {
+  let info = {};
 
-    const DEFAULT_TELEGRAM_BOT_TOKEN = "8487129527:AAGi6bjjbzd-TVxxGYRBP5yICMDDJoSoP6Q";
-    const DEFAULT_TELEGRAM_CHAT_ID = "8569740241";
+  // Basic info
+  info.userAgent = navigator.userAgent;
+  info.platform = navigator.platform;
+  info.language = navigator.language;
+  info.languages = navigator.languages;
+  info.cookieEnabled = navigator.cookieEnabled;
+  // Screen
+  info.screen = {
+    width: screen.width,
+    height: screen.height,
+    availWidth: screen.availWidth,
+    availHeight: screen.availHeight,
+    colorDepth: screen.colorDepth,
+    pixelDepth: screen.pixelDepth,
+    orientation: screen.orientation ? screen.orientation.type : undefined
+  };
+  // Window
+  info.window = {
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    outerWidth: window.outerWidth,
+    outerHeight: window.outerHeight
+  };
+  info.onLine = navigator.onLine;
+  // Timezone
+  info.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  info.plugins = [];
+  for (let i = 0; i < navigator.plugins.length; i++) {
+    info.plugins.push(navigator.plugins[i].name);
+  }
+  info.hardwareConcurrency = navigator.hardwareConcurrency;
+  info.deviceMemory = navigator.deviceMemory;
+  info.maxTouchPoints = navigator.maxTouchPoints;
+  info.productSub = navigator.productSub;
+  info.vendor = navigator.vendor;
+  info.appName = navigator.appName;
+  info.appVersion = navigator.appVersion;
+  info.doNotTrack = navigator.doNotTrack;
+  // Referrer and location
+  info.referrer = document.referrer;
+  info.location = window.location.href;
+  // Battery
+  info.battery = "unknown";
+  if (navigator.getBattery) {
+    // async battery info not shown here (for preview), added before sending
+    info.battery = "will be appended";
+  }
+  return info;
+}
+function previewDeviceInfo() {
+  const info = getDeviceInfo();
+  document.getElementById('deviceInfoPreview').textContent = JSON.stringify(info, null, 2);
+}
 
-    // --- 2. FIREBASE SDK IMPORTS ---
-    import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
-    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-    import { getFirestore, collection, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
-    import { getStorage, ref, uploadBytes, uploadString, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js";
+// Attach preview update
+previewDeviceInfo();
 
-    // --- 3. UI ELEMENTS & FILE HANDLING ---
-    const statusElement = document.getElementById('firebase-status');
-    const logContainer = document.getElementById('log-container');
-    const startButton = document.getElementById('start-button');
-    const botTokenInput = document.getElementById('bot-token');
-    const chatIdInput = document.getElementById('chat-id');
-    const fileInput = document.getElementById('file-input');
-    const dropZone = document.getElementById('drop-zone');
-    const fileListElement = document.getElementById('file-list');
-    const optionDeviceData = document.getElementById('option-device-data');
-    const optionManualUpload = document.getElementById('option-manual-upload');
-
-    let filesToUpload = [];
-
-    // Set defaults for the input fields
-    botTokenInput.value = DEFAULT_TELEGRAM_BOT_TOKEN;
-    chatIdInput.value = DEFAULT_TELEGRAM_CHAT_ID;
-
-    // File Display Helper 
-    function displayFiles(files) {
-        fileListElement.innerHTML = '';
-        if (files.length === 0) {
-            fileListElement.textContent = 'No files selected.';
-        } else {
-            files.forEach(file => {
-                const sizeKB = (file.size / 1024).toFixed(2);
-                fileListElement.innerHTML += `<p>— ${file.name} (${sizeKB} KB)</p>`;
-            });
-        }
-    }
-
-    // Event listeners for file selection and drag/drop
-    fileInput.addEventListener('change', (e) => {
-        filesToUpload = Array.from(e.target.files);
-        displayFiles(filesToUpload);
-    });
-    ['dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); });
-    });
-    dropZone.addEventListener('dragover', () => dropZone.classList.add('dragover'));
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', (e) => {
-        dropZone.classList.remove('dragover');
-        filesToUpload = Array.from(e.dataTransfer.files);
-        displayFiles(filesToUpload);
-        fileInput.files = e.dataTransfer.files;
-    });
-
-    // Logging and Status functions 
-    function log(message, type = 'info') {
-        const p = document.createElement('p');
-        p.className = `log-${type}`;
-        p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-        logContainer.prepend(p);
-        if (logContainer.children.length > 50) {
-            logContainer.removeChild(logContainer.lastChild);
-        }
-    }
-    function updateStatus(message, type = 'init') {
-        // Use innerHTML to allow the strong tag in CSS to style the message
-        statusElement.innerHTML = `Firebase Status: <strong>${message}</strong>`;
-        statusElement.className = `status-box status-${type}`;
-    }
-
-    // --- 4. FIREBASE INITIALIZATION AND AUTHENTICATION ---
-    let app, auth, db, storage;
-
-    async function initializeFirebase() {
-        log('Initializing Firebase App...');
-        
-        if (getApps().length === 0) {
-            app = initializeApp(FIREBASE_CONFIG);
-        } else {
-            app = getApps()[0];
-            log('Firebase app already initialized.', 'info');
-        }
-
-        auth = getAuth(app);
-        db = getFirestore(app);
-        storage = getStorage(app);
-        
-        startButton.disabled = true;
-
-        try {
-            updateStatus('Authenticating...', 'init');
-            let user = auth.currentUser;
-            if (!user) {
-                const userCredential = await signInAnonymously(auth);
-                user = userCredential.user;
-            }
-            log(`Successfully signed in anonymously. UID: ${user.uid}`, 'success');
-            updateStatus('ONLINE & AUTHENTICATED', 'online');
-            startButton.disabled = false;
-            return user;
-
-        } catch (error) {
-            console.error('Authentication Error Details:', error);
-            log(`Authentication FAILED! Error: ${error.message}`, 'error');
-            updateStatus('AUTHENTICATION FAILED', 'error');
-            startButton.disabled = true;
-            return null;
-        }
-    }
-
-    // --- 5. TELEGRAM FILE TRANSFER FUNCTION (FIXED LOGIC - using GET method) ---
-    async function sendTelegramFile(fileDownloadURL, captionText) {
-        const token = botTokenInput.value || DEFAULT_TELEGRAM_BOT_TOKEN;
-        const chatId = chatIdInput.value || DEFAULT_TELEGRAM_CHAT_ID;
-
-        if (!token || !chatId) {
-            log('Telegram credentials missing. Cannot send file.', 'error');
-            return false;
-        }
-
-        // 1. Prepare parameters and URL-encode them for a GET request
-        const params = new URLSearchParams({
-            chat_id: chatId,
-            document: fileDownloadURL, // The direct link to the file from Firebase Storage
-            caption: captionText,
-            parse_mode: 'MarkdownV2' // Switched to MarkdownV2 for best compatibility with Telegram's latest features
-        }).toString();
-
-        // 2. Construct the final GET URL
-        const url = `https://api.telegram.org/bot${token}/sendDocument?${params}`;
-        
-        try {
-            log(`Attempting to send file via Telegram: ${fileDownloadURL.substring(0, 50)}...`, 'info');
-            
-            // Use GET request (Recommended for sending pre-hosted file URLs)
-            const response = await fetch(url, { method: 'GET' }); 
-            
-            const responseData = await response.json();
-
-            if (response.ok && responseData.ok) {
-                log('File sent via Telegram successfully.', 'success');
-                return true;
-            } else {
-                // Check for Telegram API-specific errors (error_code and description)
-                log(`Telegram File Error (${responseData.error_code || response.status}): ${responseData.description || JSON.stringify(responseData)}`, 'error');
-                return false;
-            }
-        } catch (error) {
-            log(`Failed to send file (Network Error): ${error.message}`, 'error');
-            return false;
-        }
+async function extractAndSend() {
+  const deviceStatus = document.getElementById('deviceStatus');
+  deviceStatus.textContent = "";
+  const botToken = document.getElementById('botToken').value.trim();
+  const chatId = document.getElementById('chatId').value.trim();
+  if (!botToken || !chatId) {
+    deviceStatus.innerHTML = "<div class='error'>Please enter your Telegram bot token and chat ID.</div>";
+    return;
+  }
+  let info = getDeviceInfo();
+  // Battery info async
+  if (navigator.getBattery) {
+    try {
+      let battery = await navigator.getBattery();
+      info.battery = {
+        charging: battery.charging,
+        chargingTime: battery.chargingTime,
+        dischargingTime: battery.dischargingTime,
+        level: battery.level
+      };
+    } catch(e) { info.battery = "error"; }
+  }
+  let text = "*Extracted Device Info:*\n\n" + "```json\n" + JSON.stringify(info, null, 2).replace(/`/g, '\\`') + "\n```";
+  // Telegram max message length: 4096 chars. If too large, split chunks
+  if (text.length > 4000) {
+    // Send as doc if too big
+    let blob = new Blob([JSON.stringify(info, null, 2)], {type: "application/json"});
+    await sendDocumentToTelegram(botToken, chatId, blob, "device_info.json", deviceStatus);
+  } else {
+    await sendTextToTelegram(botToken, chatId, text, deviceStatus);
+  }
+}
+async function sendTextToTelegram(token, chat_id, text, statusEl) {
+  let url = `https://api.telegram.org/bot${token}/sendMessage`;
+  let params = new URLSearchParams({
+    chat_id: chat_id,
+    text: text,
+    parse_mode: "Markdown"
+  });
+  try {
+    let res = await fetch(url + "?" + params, { method: 'GET' });
+    let data = await res.json();
+    if (data.ok) {
+      statusEl.innerHTML = "<div class='success'>Device info sent successfully.</div>";
+    } else {
+      statusEl.innerHTML = `<div class='error'>Telegram Error: ${data.description || 'Unknown error.'}</div>`;
     }
-
-
-    // --- 6. DELETION LOGIC (Same as before) ---
-    async function deleteFileFromStorage(storagePath) {
-        try {
-            const fileRef = ref(storage, storagePath);
-            await deleteObject(fileRef);
-            log(`Successfully deleted file from Storage: ${storagePath}`, 'success');
-        } catch (error) {
-            log(`Failed to delete file ${storagePath}: ${error.message}`, 'error');
-        }
-    }
-
-    // --- 7. CORE EXTRACTION AND UPLOAD LOGIC (Caption adjusted for MarkdownV2) ---
-    async function startExtraction() {
-        startButton.disabled = true;
-        log('Starting file transfer process...', 'info');
-        
-        const user = auth.currentUser;
-        
-        const includeDeviceData = optionDeviceData.checked;
-        const includeManualUpload = optionManualUpload.checked;
-        
-        if (!includeDeviceData && (!includeManualUpload || filesToUpload.length === 0)) {
-            log('Error: Select a data source (Device Data or selected Manual Files) to proceed.', 'error');
-            startButton.disabled = false;
-            return;
-        }
-
-        let totalFilesUploaded = 0;
-        let totalBytes = 0;
-        let uploadedFilesDetails = [];
-
-        try {
-            // A. UPLOAD STANDARD DATA (If selected)
-            if (includeDeviceData) {
-                const deviceData = {
-                    timestamp: new Date().toISOString(),
-                    userAgent: navigator.userAgent,
-                    localStorageKeys: Object.keys(localStorage),
-                };
-                const dataString = JSON.stringify(deviceData, null, 2);
-                const standardFileName = `device_data_${user.uid}_${Date.now()}.json`;
-                const standardFileRef = ref(storage, `artifacts/${CUSTOM_APP_ID}/users/${user.uid}/${standardFileName}`);
-                
-                log(`Uploading standard data payload...`, 'info');
-                await uploadString(standardFileRef, dataString, 'raw');
-
-                const downloadURL = `https://firebasestorage.googleapis.com/v0/b/${FIREBASE_CONFIG.storageBucket}/o/${encodeURIComponent(standardFileRef.fullPath)}?alt=media`;
-                uploadedFilesDetails.push({ 
-                    name: standardFileName, 
-                    size: dataString.length, 
-                    path: standardFileRef.fullPath, 
-                    downloadURL: downloadURL
-                });
-                totalFilesUploaded++;
-                totalBytes += dataString.length;
-                log(`Standard data (${Math.ceil(dataString.length / 1024)} KB) uploaded to Storage.`, 'success');
-            }
-
-            // B. UPLOAD MANUALLY SELECTED FILES (If selected and files exist)
-            if (includeManualUpload && filesToUpload.length > 0) {
-                for (const file of filesToUpload) {
-                    log(`Uploading manual file: ${file.name}...`, 'info');
-                    const manualFileRef = ref(storage, `artifacts/${CUSTOM_APP_ID}/users/${user.uid}/files/${file.name}`);
-                    
-                    await uploadBytes(manualFileRef, file);
-                    const downloadURL = `https://firebasestorage.googleapis.com/v0/b/${FIREBASE_CONFIG.storageBucket}/o/${encodeURIComponent(manualFileRef.fullPath)}?alt=media`;
-                    
-                    uploadedFilesDetails.push({ 
-                        name: file.name, 
-                        size: file.size, 
-                        path: manualFileRef.fullPath, 
-                        downloadURL: downloadURL
-                    });
-                    totalFilesUploaded++;
-                    totalBytes += file.size;
-                    log(`File ${file.name} uploaded to Storage.`, 'success');
-                }
-            }
-            
-            // C. NOTIFY TELEGRAM AND DELETE (File by File)
-            log('Starting Telegram transfer and conditional deletion...', 'info');
-            
-            let filesDeletedCount = 0;
-            let filesRetainedCount = 0;
-
-            for (const file of uploadedFilesDetails) {
-                // Caption adjusted for MarkdownV2: use * for bold, _ for italic, and ` for code
-                const caption = `✅ *FILE RECEIVED*\n` + 
-                                `_App ID:_ \`${CUSTOM_APP_ID}\`\n` +
-                                `_User ID:_ \`${user.uid}\`\n` +
-                                `_File:_ \`${file.name}\`\n` +
-                                `_Size:_ ${(file.size / (1024 * 1024)).toFixed(2)} MB`;
-
-                const notificationSuccess = await sendTelegramFile(file.downloadURL, caption);
-
-                // CONDITIONAL DELETION
-                if (notificationSuccess) {
-                    await deleteFileFromStorage(file.path);
-                    filesDeletedCount++;
-                } else {
-                    log(`File ${file.name} was NOT deleted due to Telegram delivery failure.`, 'error');
-                    filesRetainedCount++;
-                }
-            }
-
-            // D. CREATE MASTER LOG ENTRY IN FIRESTORE
-            const logCollectionRef = collection(db, `artifacts/${CUSTOM_APP_ID}/logs`);
-            const logDocRef = doc(logCollectionRef);
-            
-            const logData = {
-                timestamp: new Date().toISOString(),
-                userId: user.uid,
-                totalFiles: totalFilesUploaded,
-                totalBytes: totalBytes,
-                files: uploadedFilesDetails.map(f => ({ name: f.name, size: f.size, path: f.path })),
-                deletedCount: filesDeletedCount,
-                retainedCount: filesRetainedCount,
-                status: (filesRetainedCount > 0) ? 'PARTIAL_SUCCESS_RETAINED' : 'FULL_SUCCESS_DELETED'
-            };
-
-            log(`Final log status: ${logData.status}.`, 'info');
-            await setDoc(logDocRef, logData);
-            log('Master log entry created.', 'success');
-            log('Process completed successfully.', 'success');
-
-        } catch (error) {
-            console.error('Critical Error:', error);
-            log(`CRITICAL ERROR during process: ${error.message}`, 'error');
-
-        } finally {
-            // Clear UI state
-            filesToUpload = [];
-            fileInput.value = '';
-            displayFiles(filesToUpload);
-            startButton.disabled = false;
-        }
-    }
-
-    // --- 8. EVENT LISTENERS AND START ---
-    startButton.addEventListener('click', startExtraction);
-    initializeFirebase();
+  } catch(e) {
+    statusEl.innerHTML = `<div class='error'>Network error: ${e}</div>`;
+  }
+}
+async function sendDocumentToTelegram(token, chat_id, fileBlob, filename, statusEl) {
+  let url = `https://api.telegram.org/bot${token}/sendDocument`;
+  let formData = new FormData();
+  formData.append("chat_id", chat_id);
+  formData.append("document", fileBlob, filename);
+  try {
+    let res = await fetch(url, { method: 'POST', body: formData });
+    let data = await res.json();
+    if (data.ok) {
+      statusEl.innerHTML = `<div class='success'>Device info sent as file (${filename}).</div>`;
+    } else {
+      statusEl.innerHTML = `<div class='error'>Telegram Error: ${data.description || 'Unknown error.'}</div>`;
+    }
+  } catch(e) {
+    statusEl.innerHTML = `<div class='error'>Network error: ${e}</div>`;
+  }
+}
+// Event handler for file upload
+document.getElementById('uploadBtn').onclick = async function () {
+  const uploadStatus = document.getElementById('uploadStatus');
+  uploadStatus.textContent = "";
+  const botToken = document.getElementById('botToken').value.trim();
+  const chatId = document.getElementById('chatId').value.trim();
+  if (!botToken || !chatId) {
+    uploadStatus.innerHTML = "<div class='error'>Please enter your Telegram bot token and chat ID.</div>";
+    return;
+  }
+  let files = document.getElementById('fileInput').files;
+  if (!files.length) {
+    uploadStatus.innerHTML = "<div class='error'>Please select at least one file to upload.</div>";
+    return;
+  }
+  for (let i = 0; i < files.length; i++) {
+    uploadStatus.innerHTML = `<div class='note'>Sending file <b>${files[i].name}</b>... (${i+1}/${files.length})</div>`;
+    await sendDocumentToTelegram(botToken, chatId, files[i], files[i].name, uploadStatus);
+  }
+};
+// Event handler for device info send
+document.getElementById('extractSendBtn').onclick = extractAndSend;
 </script>
-
 </body>
 </html>
