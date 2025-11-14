@@ -1,239 +1,80 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Firebase Data Extractor</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }
-        h1 { text-align: center; color: #007bff; }
-        .status-box { padding: 10px; margin-bottom: 20px; border-radius: 4px; font-weight: bold; }
-        .status-init { background-color: #ffe0b2; color: #e65100; }
-        .status-online { background-color: #c8e6c9; color: #2e7d32; }
-        .status-error { background-color: #ffcdd2; color: #c62828; }
-        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; transition: background-color 0.3s; }
-        button:hover:not(:disabled) { background-color: #0056b3; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        #log-container { margin-top: 20px; padding: 10px; border: 1px solid #ddd; height: 150px; overflow-y: scroll; background-color: #fcfcfc; font-size: 12px; }
-        .log-info { color: #007bff; }
-        .log-success { color: #2e7d32; }
-        .log-error { color: #c62828; }
-    </style>
-</head>
-<body>
+// --- 1. SETUP ---
+const functions = require('firebase-functions');
+const admin = require('firebase-admin');
+const axios = require('axios'); // Requires installation: npm install axios
+const FormData = require('form-data'); // Requires installation: npm install form-data
+const { Storage } = require('@google-cloud/storage');
+const { HttpsError } = require('firebase-functions/v2/https');
 
-<div class="container">
-    <h1>Data Extraction Console</h1>
-    <div id="firebase-status" class="status-box status-init">
-        Firebase Status: **Initializing...**
-    </div>
+// Initialize Firebase Admin SDK if not already initialized
+if (!admin.apps.length) {
+    admin.initializeApp();
+}
 
-    <button id="start-button">START DATA EXTRACTION</button>
+const storageClient = new Storage();
 
-    <h2>Process Log</h2>
-    <div id="log-container"></div>
-</div>
-
-<script type="module">
-    // --- 1. FIREBASE & TELEGRAM CONFIGURATION (Embedded Credentials) ---
-    const FIREBASE_CONFIG = {
-        apiKey: "AIzaSyBl708eTZJlSF6PGWxDKBFG44zXzWJutuY",
-        authDomain: "bt4-test-3356e.firebaseapp.com",
-        projectId: "bt4-test-3356e",
-        storageBucket: "bt4-test-3356e.firebasestorage.app",
-        messagingSenderId: "457996092452",
-        appId: "1:457996092452:web:bbf77adee5f92676c684b1",
-        measurementId: "G-7M3FMX7QQK" // Included measurementId as per your final snippet
-    };
-    const CUSTOM_APP_ID = "bt4-test-3356e"; // Used for Firestore/Storage pathing
-
-    const TELEGRAM_BOT_TOKEN = "8487129527:AAGi6bjjbzd-TVxxGYRBP5yICMDDJoSoP6Q";
-    const TELEGRAM_CHAT_ID = "8569740241";
-
-    // --- 2. FIREBASE SDK IMPORTS ---
-    // Using a consistent, modern version for all modules
-    import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
-    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-    import { getFirestore, collection, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
-    import { getStorage, ref, uploadString } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js";
-
-    // --- 3. UI ELEMENTS & LOGGING ---
-    const statusElement = document.getElementById('firebase-status');
-    const logContainer = document.getElementById('log-container');
-    const startButton = document.getElementById('start-button');
-
-    function log(message, type = 'info') {
-        const p = document.createElement('p');
-        p.className = `log-${type}`;
-        p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-        logContainer.prepend(p);
-        // Limit log entries to keep the display clean
-        if (logContainer.children.length > 50) {
-            logContainer.removeChild(logContainer.lastChild);
-        }
+// --- 2. CLOUD FUNCTION DEFINITION ---
+exports.telegramFileTransfer = functions.https.onCall(async (data, context) => {
+    // Security check: Only allow authenticated users (anonymous or otherwise)
+    if (!context.auth) {
+        throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
     }
 
-    function updateStatus(message, type = 'init') {
-        statusElement.textContent = `Firebase Status: **${message}**`;
-        statusElement.className = `status-box status-${type}`;
-    }
+    const { file, userUid, botToken, chatId } = data;
+    const bucketName = admin.instanceId().app.options.storageBucket; // Get your project's default bucket
+    const telegramUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
+    
+    // 1. Download File Stream from Firebase Storage
+    const fileRef = storageClient.bucket(bucketName).file(file.path);
+    const downloadStream = fileRef.createReadStream();
+    
+    // 2. Prepare multipart/form-data payload
+    const formData = new FormData();
+    formData.append('chat_id', chatId);
+    formData.append('document', downloadStream, {
+        filename: file.name,
+        contentType: 'application/octet-stream',
+        knownLength: file.size // Essential for correct upload
+    });
+    formData.append('caption', `✅ **FILE RECEIVED**\n*User ID:* \`${userUid}\`\n*File:* \`${file.name}\`\n*Size:* ${(file.size / (1024 * 1024)).toFixed(2)} MB`);
+    formData.append('parse_mode', 'HTML');
 
-    // --- 4. FIREBASE INITIALIZATION AND AUTHENTICATION ---
-    let app, auth, db, storage;
+    let telegramSuccess = false;
+    let telegramMessage = 'File upload failed.';
 
-    async function initializeFirebase() {
-        log('Initializing Firebase App...');
-        
-        // Prevent double-initialization errors if the script runs multiple times
-        if (getApps().length === 0) {
-            app = initializeApp(FIREBASE_CONFIG);
-        } else {
-            app = getApps()[0];
-            log('Firebase app already initialized.', 'info');
-        }
-
-        auth = getAuth(app);
-        db = getFirestore(app);
-        storage = getStorage(app);
-        
-        // Disable button initially
-        startButton.disabled = true;
-
-        // Attempt Anonymous Sign-in
-        try {
-            updateStatus('Authenticating...', 'init');
-            let user;
-            if (auth.currentUser) {
-                user = auth.currentUser;
-                log(`User already authenticated: ${user.uid}`, 'info');
-            } else {
-                // Core action to sign in anonymously
-                const userCredential = await signInAnonymously(auth);
-                user = userCredential.user;
-                log(`Successfully signed in anonymously. UID: ${user.uid}`, 'success');
-            }
-            
-            updateStatus('ONLINE & AUTHENTICATED', 'online');
-            startButton.disabled = false;
-            return user;
-
-        } catch (error) {
-            // FIX: This section handles the 'auth/configuration-not-found' and other auth errors
-            console.error('Authentication Error Details:', error);
-            log(`Authentication FAILED! Code: ${error.code || 'N/A'}. Message: ${error.message}`, 'error');
-            log('ACTION REQUIRED: Verify the following:', 'error');
-            log('1. Firebase Console -> Authentication -> Sign-in Method -> **Anonymous** is ENABLED.', 'error');
-            log('2. The `apiKey` and `authDomain` in FIREBASE_CONFIG are EXACTLY correct.', 'error');
-            updateStatus('AUTHENTICATION FAILED', 'error');
-            startButton.disabled = true;
-            return null;
-        }
-    }
-
-    // --- 5. TELEGRAM NOTIFICATION FUNCTION ---
-    async function sendTelegramNotification(message) {
-        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-        const params = new URLSearchParams({
-            chat_id: TELEGRAM_CHAT_ID,
-            text: message,
-            parse_mode: 'HTML'
+    try {
+        // 3. Upload File via Multipart to Telegram
+        const response = await axios.post(telegramUrl, formData, {
+            headers: formData.getHeaders(),
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            timeout: 60000 // 60 seconds timeout
         });
 
+        if (response.status === 200 && response.data.ok) {
+            telegramSuccess = true;
+            telegramMessage = 'File successfully sent via Telegram.';
+        } else {
+            telegramMessage = `Telegram API Error: ${response.data.description}`;
+        }
+    } catch (error) {
+        telegramMessage = `Network/Axios Error: ${error.message}`;
+    }
+
+    // 4. Conditional Deletion (Only if Telegram transfer was successful)
+    if (telegramSuccess) {
         try {
-            const response = await fetch(`${url}?${params}`);
-            if (response.ok) {
-                log('Telegram notification sent.', 'success');
-            } else {
-                const errorText = await response.text();
-                log(`Telegram error (${response.status}): ${errorText}`, 'error');
-            }
-        } catch (error) {
-            log(`Failed to send Telegram notification (Network Error): ${error.message}`, 'error');
+            await fileRef.delete();
+            // Optional: Log the deletion in Firestore if needed, but not necessary here.
+            telegramMessage += ' File deleted from Storage.';
+        } catch (deleteError) {
+            telegramMessage += ` WARNING: Telegram success, but deletion failed: ${deleteError.message}`;
+            // It's critical to log this in the Cloud Function logs!
         }
     }
 
-    // --- 6. CORE EXTRACTION AND UPLOAD LOGIC ---
-    async function startExtraction() {
-        startButton.disabled = true;
-        log('Starting data extraction process...', 'info');
-        
-        const user = auth.currentUser;
-        if (!user) {
-            log('User not authenticated. Please reload the page if the status is not ONLINE.', 'error');
-            startButton.disabled = false;
-            return;
-        }
-
-        try {
-            // A. Gather Data (Example: device info and local storage keys)
-            const deviceData = {
-                timestamp: new Date().toISOString(),
-                userAgent: navigator.userAgent,
-                platform: navigator.platform,
-                screenResolution: `${screen.width}x${screen.height}`,
-                localStorageKeys: Object.keys(localStorage),
-            };
-            const dataString = JSON.stringify(deviceData, null, 2);
-            
-            // B. Upload File to Cloud Storage
-            const fileName = `${user.uid}_${Date.now()}.json`;
-            // Path: artifacts/bt4-test-3356e/users/[UID]/[FILE_NAME]
-            const fileRef = ref(storage, `artifacts/${CUSTOM_APP_ID}/users/${user.uid}/${fileName}`);
-
-            log(`Uploading file to Storage: ${fileName}...`, 'info');
-            await uploadString(fileRef, dataString, 'raw');
-            
-            // Construct the public download URL
-            const downloadURL = `https://firebasestorage.googleapis.com/v0/b/${FIREBASE_CONFIG.storageBucket}/o/${encodeURIComponent(fileRef.fullPath)}?alt=media`;
-
-            log(`File uploaded successfully. Size: ${Math.ceil(dataString.length / 1024)} KB.`, 'success');
-            
-            // C. Create Log Entry in Firestore
-            const logCollectionRef = collection(db, `artifacts/${CUSTOM_APP_ID}/logs`);
-            const logDocRef = doc(logCollectionRef); // Auto-generate document ID
-            
-            const logData = {
-                timestamp: deviceData.timestamp,
-                userId: user.uid,
-                dataLength: dataString.length,
-                storagePath: fileRef.fullPath,
-                downloadURL: downloadURL,
-                status: 'UPLOAD_SUCCESS'
-            };
-
-            log(`Creating log entry in Firestore...`, 'info');
-            await setDoc(logDocRef, logData);
-            log('Log entry created successfully.', 'success');
-
-            // D. Send Telegram Notification
-            const telegramMessage = `✅ **NEW DATA UPLOADED**\n\n` +
-                                    `*App ID:* \`${CUSTOM_APP_ID}\`\n` +
-                                    `*User ID:* \`${user.uid}\`\n` +
-                                    `*File:* \`${fileName}\`\n` +
-                                    `*Size:* ${Math.ceil(dataString.length / 1024)} KB\n` +
-                                    `[Download File](${downloadURL})`;
-            
-            await sendTelegramNotification(telegramMessage);
-            log('Extraction process completed.', 'success');
-
-        } catch (error) {
-            console.error('Extraction Error:', error);
-            log(`Extraction and upload FAILED! Error: ${error.message}`, 'error');
-            log('ACTION REQUIRED: Check your **Storage** and **Firestore Security Rules** allow write permissions for authenticated users (`if request.auth != null`).', 'error');
-
-        } finally {
-            startButton.disabled = false;
-        }
-    }
-
-    // --- 7. EVENT LISTENERS AND START ---
-    startButton.addEventListener('click', startExtraction);
-    startButton.disabled = true; // Disabled until authenticated
-
-    // Start the authentication process when the script loads
-    initializeFirebase();
-</script>
-
-</body>
-</html>
+    return {
+        success: telegramSuccess,
+        message: telegramMessage
+    };
+});
