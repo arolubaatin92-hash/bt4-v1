@@ -2,273 +2,358 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Device Data Extractor & Telegram Sender</title>
+  <title>Advanced Chunked File Sender to Telegram Bot</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     body {
-      background: #f7f8fa;
-      font-family: 'Segoe UI', Verdana, Arial, sans-serif;
-      color: #2a2a2a;
+      font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+      background: linear-gradient(to right, #c8e8fa 0%, #e2ffe6 100%);
       margin: 0;
+      padding: 0;
     }
     .container {
-      max-width: 420px;
-      margin: 32px auto;
+      max-width: 480px;
       background: #fff;
-      padding: 32px 24px;
-      border-radius: 10px;
-      box-shadow: 0 1px 8px rgba(0,0,0,0.07);
+      margin: 32px auto;
+      padding: 32px 30px 28px;
+      border-radius: 14px;
+      box-shadow: 0 2px 16px rgba(52,128,255,0.10);
     }
     h1 {
       text-align: center;
-      font-size: 1.6em;
+      color: #42a09e;
+      font-weight: 700;
+      font-size: 2em;
       margin-bottom: 16px;
-      color: #2470c7;
     }
-    .section {
-      margin-bottom: 26px;
-      padding-bottom: 20px;
-      border-bottom: 1px solid #eee;
-    }
-    label {
+    .label {
+      font-weight: 560;
+      margin-top: 14px;
+      margin-bottom: 6px;
       display: block;
-      margin: 12px 0 4px 2px;
-      font-weight: 500;
+      color: #225568;
+      font-size: 1.04em;
     }
-    input, select, textarea, button {
-      font-size: 1em;
+    input[type="text"], input[type="file"] {
       width: 100%;
-      padding: 10px 12px;
-      margin-bottom: 12px;
-      border-radius: 6px;
-      border: 1px solid #c6c6c8;
+      font-size: 1em;
+      padding: 11px 13px;
+      margin-bottom: 8px;
+      border: 1.5px solid #98cdff;
+      border-radius: 7px;
+      background: #f7fafc;
+      box-sizing: border-box;
+      transition: border-color .2s;
+    }
+    input[type="file"] {
+      border: 0;
+      background: transparent;
+      font-size: 1em;
+      padding: 0;
+      margin-bottom: 8px;
     }
     button {
-      background: linear-gradient(90deg, #4681e4 0%, #4fbcab 100%);
+      background: linear-gradient(90deg, #349ccc 35%, #4fbcab 100%);
       color: #fff;
       border: none;
-      font-weight: bold;
+      border-radius: 8px;
+      font-size: 1.1em;
+      font-weight: 600;
+      padding: 13px 10px;
+      width: 100%;
       cursor: pointer;
-      transition: background .2s;
+      margin-top: 12px;
+      margin-bottom: 8px;
+      transition: background .16s, box-shadow .16s;
+      box-shadow: 0 1px 6px #349ccc08;
     }
-    button:hover {
-      background: linear-gradient(90deg, #386ab2 0%, #449c87 100%);
+    button:disabled {
+      background: #aed9e9;
+      cursor: not-allowed;
     }
-    .extracted {
-      background: #f2f5ff;
+    .progress-bar-bg {
+      background: #f3f3f3;
+      border-radius: 9px;
+      height: 28px;
+      margin: 12px 0 16px;
+      width: 100%;
+      box-shadow: 0 1px 6px #98cdff10;
+      overflow: hidden;
+      border: 1px solid #b7efe6;
+    }
+    .progress-bar {
+      height: 100%;
+      transition: width 0.3s;
+      background: linear-gradient(90deg, #39c8b1 0%, #3193d7 100%);
+      border-radius: 9px 0 0 9px;
+      width: 0%;
+      font-weight: 700;
+      color: #fff;
+      text-align: center;
+      font-size: 1em;
+      line-height: 28px;
+      box-shadow: 0 1px 4px #349ccc16;
+    }
+    .log-area {
+      background: #f7f7fa;
+      border-radius: 10px;
+      min-height: 40px;
       font-size: .95em;
-      border-left: 3px solid #90c7ffd2;
-      padding: 12px 16px;
+      color: #245959;
+      padding: 8px 14px;
       margin-bottom: 10px;
-      max-height: 180px;
+      margin-top: 5px;
       overflow-y: auto;
-      border-radius: 6px;
-      color: #2e3f4f;
+      max-height: 200px;
+      border-left: 3px solid #58e2e2;
     }
-    .note {
+    .chunk-list {
+      margin-top: 8px;
+      margin-bottom: 8px;
+    }
+    .chunk-item {
+      background: #e1fbfe;
+      border-radius: 6px;
+      padding: 8px 12px 6px 12px;
+      font-size: .97em;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 1px 6px #349ccc11;
+      border-left: 4px solid #53ceb7;
+    }
+    .chunk-status {
+      font-weight: 600;
+      font-size: 1em;
+    }
+    .chunk-success { color: #206f2a; }
+    .chunk-pending { color: #4c4c4c; }
+    .chunk-failed { color: #d13747; }
+    .retry-btn {
+      background: #faa6a6 !important;
+      color: #802a2a !important;
+      padding: 7px 13px;
+      border-radius: 6px;
       font-size: .93em;
-      color: #555;
-      margin-top: -7px;
-      margin-bottom: 18px;
+      border: none;
+      cursor: pointer;
+      margin-left: 14px;
+      min-width: 60px;
+      transition: background .13s;
+      box-shadow: 0 1px 3px #ffdadb23;
     }
-    .success {
-      background: #e6ffe6;
-      color: #246b2c;
-      border: 1px solid #b9ffbc;
-      padding: 10px 16px;
-      margin-bottom: 13px;
-      border-radius: 6px;
+    .retry-btn:hover { background: #f87070 !important; }
+    .small-note {
+      font-size: 0.97em;
+      color: #5f5f6b;
+      margin-top: -2px;
+      margin-bottom: 10px;
     }
-    .error {
-      background: #fff0f0;
-      color: #b24c48;
-      border: 1px solid #ffd4d4;
-      padding: 10px 16px;
-      margin-bottom: 13px;
-      border-radius: 6px;
+    .success-msg, .error-msg {
+      padding: 10px 18px;
+      margin-bottom: 9px;
+      border-radius: 8px;
     }
+    .success-msg { background: #e8ffed; color: #257537; border: 1px solid #85ff8e; }
+    .error-msg { background: #fff0f1; color: #d13747; border: 1px solid #ffdae4; }
   </style>
 </head>
 <body>
-<div class="container">
-  <h1>Device & Data Sender to Telegram</h1>
-  
-  <div class="section">
-    <label for="botToken">Telegram Bot Token</label>
-    <input type="text" id="botToken" placeholder="Enter Bot API token" autocomplete="off">
+  <div class="container">
+    <h1>Chunk & Send File to Telegram Bot</h1>
 
-    <label for="chatId">Telegram Chat ID</label>
-    <input type="text" id="chatId" placeholder="Enter Chat ID" autocomplete="off">
+    <label class="label" for="botToken">Telegram Bot Token</label>
+    <input type="text" id="botToken" placeholder="Enter Bot API token">
+
+    <label class="label" for="chatId">Telegram Chat ID</label>
+    <input type="text" id="chatId" placeholder="Enter Chat ID">
+
+    <label class="label" for="fileInput">Select File to Chunk & Send</label>
+    <input type="file" id="fileInput">
+    <div class="small-note">Files are split into 2MB ZIP chunks and sent one by one. Do not use this method for extremely large files.</div>
+
+    <button id="startBtn">Start Chunk & Upload</button>
+
+    <div class="progress-bar-bg"><div class="progress-bar" id="progressBar">0%</div></div>
+
+    <div class="log-area" id="logArea"></div>
+
+    <div class="chunk-list" id="chunkList"></div>
   </div>
-  
-  <div class="section">
-    <label>Extract & Send Device Info</label>
-    <div class="note">Collects browser/device information. No personal files are included.</div>
-    <div class="extracted" id="deviceInfoPreview"></div>
-    <button id="extractSendBtn">Send Device Info to Telegram</button>
-    <div id="deviceStatus"></div>
-  </div>
-  
-  <div class="section">
-    <label>Manual File/Data Upload</label>
-    <div class="note">Select files (images, docs, etc.) and send them via Telegram bot. Large files may take longer to send.</div>
-    <input type="file" id="fileInput" multiple>
-    <button id="uploadBtn">Send Selected File(s) to Telegram</button>
-    <div id="uploadStatus"></div>
-  </div>
-</div>
+  <script>
+    const CHUNK_SIZE = 2 * 1024 * 1024;
+    let file, botToken, chatId;
+    let chunkMeta = [];
+    const fileInput = document.getElementById('fileInput');
+    const startBtn = document.getElementById('startBtn');
+    const logArea = document.getElementById('logArea');
+    const chunkList = document.getElementById('chunkList');
+    const progressBar = document.getElementById('progressBar');
 
-<script>
-function getDeviceInfo() {
-  let info = {};
-
-  // Basic info
-  info.userAgent = navigator.userAgent;
-  info.platform = navigator.platform;
-  info.language = navigator.language;
-  info.languages = navigator.languages;
-  info.cookieEnabled = navigator.cookieEnabled;
-  // Screen
-  info.screen = {
-    width: screen.width,
-    height: screen.height,
-    availWidth: screen.availWidth,
-    availHeight: screen.availHeight,
-    colorDepth: screen.colorDepth,
-    pixelDepth: screen.pixelDepth,
-    orientation: screen.orientation ? screen.orientation.type : undefined
-  };
-  // Window
-  info.window = {
-    innerWidth: window.innerWidth,
-    innerHeight: window.innerHeight,
-    outerWidth: window.outerWidth,
-    outerHeight: window.outerHeight
-  };
-  info.onLine = navigator.onLine;
-  // Timezone
-  info.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  info.plugins = [];
-  for (let i = 0; i < navigator.plugins.length; i++) {
-    info.plugins.push(navigator.plugins[i].name);
-  }
-  info.hardwareConcurrency = navigator.hardwareConcurrency;
-  info.deviceMemory = navigator.deviceMemory;
-  info.maxTouchPoints = navigator.maxTouchPoints;
-  info.productSub = navigator.productSub;
-  info.vendor = navigator.vendor;
-  info.appName = navigator.appName;
-  info.appVersion = navigator.appVersion;
-  info.doNotTrack = navigator.doNotTrack;
-  // Referrer and location
-  info.referrer = document.referrer;
-  info.location = window.location.href;
-  // Battery
-  info.battery = "unknown";
-  if (navigator.getBattery) {
-    // async battery info not shown here (for preview), added before sending
-    info.battery = "will be appended";
-  }
-  return info;
-}
-function previewDeviceInfo() {
-  const info = getDeviceInfo();
-  document.getElementById('deviceInfoPreview').textContent = JSON.stringify(info, null, 2);
-}
-
-// Attach preview update
-previewDeviceInfo();
-
-async function extractAndSend() {
-  const deviceStatus = document.getElementById('deviceStatus');
-  deviceStatus.textContent = "";
-  const botToken = document.getElementById('botToken').value.trim();
-  const chatId = document.getElementById('chatId').value.trim();
-  if (!botToken || !chatId) {
-    deviceStatus.innerHTML = "<div class='error'>Please enter your Telegram bot token and chat ID.</div>";
-    return;
-  }
-  let info = getDeviceInfo();
-  // Battery info async
-  if (navigator.getBattery) {
-    try {
-      let battery = await navigator.getBattery();
-      info.battery = {
-        charging: battery.charging,
-        chargingTime: battery.chargingTime,
-        dischargingTime: battery.dischargingTime,
-        level: battery.level
-      };
-    } catch(e) { info.battery = "error"; }
-  }
-  let text = "*Extracted Device Info:*\n\n" + "```json\n" + JSON.stringify(info, null, 2).replace(/`/g, '\\`') + "\n```";
-  // Telegram max message length: 4096 chars. If too large, split chunks
-  if (text.length > 4000) {
-    // Send as doc if too big
-    let blob = new Blob([JSON.stringify(info, null, 2)], {type: "application/json"});
-    await sendDocumentToTelegram(botToken, chatId, blob, "device_info.json", deviceStatus);
-  } else {
-    await sendTextToTelegram(botToken, chatId, text, deviceStatus);
-  }
-}
-async function sendTextToTelegram(token, chat_id, text, statusEl) {
-  let url = `https://api.telegram.org/bot${token}/sendMessage`;
-  let params = new URLSearchParams({
-    chat_id: chat_id,
-    text: text,
-    parse_mode: "Markdown"
-  });
-  try {
-    let res = await fetch(url + "?" + params, { method: 'GET' });
-    let data = await res.json();
-    if (data.ok) {
-      statusEl.innerHTML = "<div class='success'>Device info sent successfully.</div>";
-    } else {
-      statusEl.innerHTML = `<div class='error'>Telegram Error: ${data.description || 'Unknown error.'}</div>`;
+    function log(msg, isSuccess=false, isError=false) {
+      const div = document.createElement('div');
+      if (isSuccess) div.className = "success-msg";
+      else if (isError) div.className = "error-msg";
+      div.textContent = msg;
+      logArea.appendChild(div);
+      logArea.scrollTop = logArea.scrollHeight;
     }
-  } catch(e) {
-    statusEl.innerHTML = `<div class='error'>Network error: ${e}</div>`;
-  }
-}
-async function sendDocumentToTelegram(token, chat_id, fileBlob, filename, statusEl) {
-  let url = `https://api.telegram.org/bot${token}/sendDocument`;
-  let formData = new FormData();
-  formData.append("chat_id", chat_id);
-  formData.append("document", fileBlob, filename);
-  try {
-    let res = await fetch(url, { method: 'POST', body: formData });
-    let data = await res.json();
-    if (data.ok) {
-      statusEl.innerHTML = `<div class='success'>Device info sent as file (${filename}).</div>`;
-    } else {
-      statusEl.innerHTML = `<div class='error'>Telegram Error: ${data.description || 'Unknown error.'}</div>`;
+
+    function updateProgressBar(percent) {
+      progressBar.style.width = percent + "%";
+      progressBar.textContent = `${Math.round(percent)}%`;
     }
-  } catch(e) {
-    statusEl.innerHTML = `<div class='error'>Network error: ${e}</div>`;
-  }
-}
-// Event handler for file upload
-document.getElementById('uploadBtn').onclick = async function () {
-  const uploadStatus = document.getElementById('uploadStatus');
-  uploadStatus.textContent = "";
-  const botToken = document.getElementById('botToken').value.trim();
-  const chatId = document.getElementById('chatId').value.trim();
-  if (!botToken || !chatId) {
-    uploadStatus.innerHTML = "<div class='error'>Please enter your Telegram bot token and chat ID.</div>";
-    return;
-  }
-  let files = document.getElementById('fileInput').files;
-  if (!files.length) {
-    uploadStatus.innerHTML = "<div class='error'>Please select at least one file to upload.</div>";
-    return;
-  }
-  for (let i = 0; i < files.length; i++) {
-    uploadStatus.innerHTML = `<div class='note'>Sending file <b>${files[i].name}</b>... (${i+1}/${files.length})</div>`;
-    await sendDocumentToTelegram(botToken, chatId, files[i], files[i].name, uploadStatus);
-  }
-};
-// Event handler for device info send
-document.getElementById('extractSendBtn').onclick = extractAndSend;
-</script>
+
+    function resetUI(clearChunks=true) {
+      logArea.innerHTML = '';
+      updateProgressBar(0);
+      if(clearChunks) chunkList.innerHTML = '';
+      chunkMeta = [];
+    }
+
+    function renderChunkList(meta) {
+      chunkList.innerHTML = '';
+      meta.forEach((item, idx) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'chunk-item';
+        wrap.id = `chunk_item_${idx}`;
+        const left = document.createElement('span');
+        left.textContent = `Chunk #${idx+1}`;
+        const stat = document.createElement('span');
+        stat.className = "chunk-status";
+        stat.textContent = item.status;
+        if(item.status === "Success") stat.classList.add("chunk-success");
+        else if(item.status === "Pending") stat.classList.add("chunk-pending");
+        else if(item.status === "Failed") stat.classList.add("chunk-failed");
+        wrap.appendChild(left);
+        wrap.appendChild(stat);
+
+        if(item.status === "Failed") {
+          const retryBtn = document.createElement('button');
+          retryBtn.textContent = "Retry";
+          retryBtn.className = "retry-btn";
+          retryBtn.onclick = () => retryChunk(idx);
+          wrap.appendChild(retryBtn);
+        }
+        chunkList.appendChild(wrap);
+      });
+    }
+
+    // Utility: ZIP a Blob as 'chunk.bin'
+    async function makeZipFromBlob(blob) {
+      let zip = new JSZip();
+      zip.file("chunk.bin", blob);
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      return zipBlob;
+    }
+
+    // Utility: Send ZIP to Telegram
+    async function sendZipToTelegram(blob, idx) {
+      return new Promise(async (resolve) => {
+        const fd = new FormData();
+        fd.append("chat_id", chatId);
+        fd.append("document", blob, `chunk${idx+1}.zip`);
+        const url = `https://api.telegram.org/bot${botToken}/sendDocument`;
+        try {
+          const resp = await fetch(url, { method: "POST", body: fd });
+          const result = await resp.json();
+          resolve(result.ok ? true : false);
+        } catch(e) {
+          resolve(false);
+        }
+      });
+    }
+
+    // Chunk, ZIP, Send (main logic)
+    async function chunkZipAndSend() {
+      resetUI();
+      botToken = document.getElementById('botToken').value.trim();
+      chatId = document.getElementById('chatId').value.trim();
+      file = fileInput.files[0];
+
+      if(!botToken || !chatId || !file) {
+        log("Please fill in token, chat ID, and select a file.", false, true);
+        return;
+      }
+      const chunkCount = Math.ceil(file.size / CHUNK_SIZE);
+      chunkMeta = [];
+      log(`Splitting "${file.name}" (${(file.size/1024/1024).toFixed(2)} MB) into ${chunkCount} x 2MB chunks...`);
+      // Prepare chunk meta info
+      for(let i = 0; i < chunkCount; i++) {
+        chunkMeta.push({ status: "Pending", zipBlob: null });
+      }
+      renderChunkList(chunkMeta);
+      let sentCount = 0;
+      // Sequentially process chunks
+      for(let i = 0; i < chunkCount; i++) {
+        let start = i * CHUNK_SIZE;
+        let end = Math.min((i+1)*CHUNK_SIZE, file.size);
+        let chunkBlob = file.slice(start, end);
+        log(`Compressing chunk ${i+1}/${chunkCount} (${((end-start)/1024).toFixed(0)} KB)...`);
+        try {
+          let zipBlob = await makeZipFromBlob(chunkBlob);
+          chunkMeta[i].zipBlob = zipBlob;
+        } catch(e) {
+          log(`Failed to zip chunk ${i+1}.`, false, true);
+          chunkMeta[i].status = "Failed";
+          renderChunkList(chunkMeta);
+          continue;
+        }
+        log(`Uploading chunk ${i+1}...`);
+        let uploadOK = await sendZipToTelegram(chunkMeta[i].zipBlob, i);
+        if(uploadOK) {
+          log(`Chunk ${i+1} sent successfully.`, true);
+          chunkMeta[i].status = "Success";
+          sentCount++;
+        } else {
+          log(`Error sending chunk ${i+1}.`, false, true);
+          chunkMeta[i].status = "Failed";
+        }
+        renderChunkList(chunkMeta);
+        updateProgressBar((sentCount / chunkCount) * 100);
+      }
+      const failCount = chunkMeta.filter(c => c.status === "Failed").length;
+      if(failCount === 0) log(`All chunks sent!`, true, false);
+      else log(`Upload completed, ${failCount} chunk(s) failed. You can retry failed chunks.`, false, true);
+    }
+
+    async function retryChunk(idx) {
+      log(`Retrying chunk ${idx+1}...`);
+      chunkMeta[idx].status = "Pending";
+      renderChunkList(chunkMeta);
+
+      if(chunkMeta[idx].zipBlob == null) {
+        // Get chunk again from file
+        let start = idx * CHUNK_SIZE;
+        let end = Math.min((idx+1)*CHUNK_SIZE, file.size);
+        let chunkBlob = file.slice(start, end);
+        try {
+          let zipBlob = await makeZipFromBlob(chunkBlob);
+          chunkMeta[idx].zipBlob = zipBlob;
+        } catch(e) {
+          log(`Failed to zip chunk ${idx+1}.`, false, true);
+          chunkMeta[idx].status = "Failed";
+          renderChunkList(chunkMeta);
+          return;
+        }
+      }
+      let uploadOK = await sendZipToTelegram(chunkMeta[idx].zipBlob, idx);
+      if(uploadOK) {
+        log(`Chunk ${idx+1} sent successfully.`, true);
+        chunkMeta[idx].status = "Success";
+      } else {
+        log(`Error sending chunk ${idx+1}.`, false, true);
+        chunkMeta[idx].status = "Failed";
+      }
+      renderChunkList(chunkMeta);
+      const sentCount = chunkMeta.filter(c => c.status === "Success").length;
+      updateProgressBar((sentCount / chunkMeta.length) * 100);
+    }
+
+    startBtn.onclick = chunkZipAndSend;
+    fileInput.onchange = () => { resetUI(false); }
+  </script>
 </body>
 </html>
